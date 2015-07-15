@@ -1,6 +1,6 @@
 (ns binj.reporting
   (:import [com.microsoft.bingads AuthorizationData PasswordAuthentication ServiceClient]
-           [com.microsoft.bingads.reporting IReportingService KeywordPerformanceReportRequest KeywordPerformanceReportColumn ReportFormat ReportAggregation AccountThroughAdGroupReportScope AccountReportScope ReportTime ReportTimePeriod ArrayOfKeywordPerformanceReportColumn SubmitGenerateReportRequest ArrayOflong]))
+           [com.microsoft.bingads.reporting IReportingService KeywordPerformanceReportRequest KeywordPerformanceReportColumn ReportFormat ReportAggregation AccountThroughAdGroupReportScope AccountReportScope ReportTime ReportTimePeriod ArrayOfKeywordPerformanceReportColumn SubmitGenerateReportRequest ArrayOflong ApiFaultDetail_Exception PollGenerateReportRequest ReportRequestStatusType]))
 
 
 (defn authorization-data [developer-token username password customer-id account-id]
@@ -17,6 +17,7 @@
 
 (def keyword-performance-column {:account-name    KeywordPerformanceReportColumn/ACCOUNT_NAME
                                  :account-number  KeywordPerformanceReportColumn/ACCOUNT_NUMBER
+                                 :campaign-name   KeywordPerformanceReportColumn/CAMPAIGN_NAME
                                  :account-id      KeywordPerformanceReportColumn/ACCOUNT_ID
                                  :time-period     KeywordPerformanceReportColumn/TIME_PERIOD
                                  :keyword         KeywordPerformanceReportColumn/KEYWORD
@@ -71,7 +72,7 @@
                                :or   {format         :tsv
                                       complete-only? true
                                       aggregation    :daily
-                                      time-period    :yes}}]
+                                      time-period    :yesterday}}]
   (let [account-longs (ArrayOflong.)]
     (doseq [id account-ids]
       (.add (.getLongs account-longs) id))
@@ -88,4 +89,23 @@
 (defn generate-report [reporting-service report-request]
   (let [generate-request (doto (SubmitGenerateReportRequest.)
                            (.setReportRequest report-request))]
-    {:request-id (.getReportRequestId (.submitGenerateReport (.getService reporting-service) generate-request))}))
+    (try
+      {:request-id (.getReportRequestId (.submitGenerateReport (.getService reporting-service) generate-request))}
+      (catch ApiFaultDetail_Exception e
+        (let [fault-info (.getFaultInfo e)]
+          {:error {:operation-errors (map (fn [e] {:code    (.getCode e)
+                                                  :details (.getDetails e)
+                                                  :message (.getMessage e)})
+                                          (.. fault-info getOperationErrors getOperationErrors))}})))))
+
+(def report-status {ReportRequestStatusType/SUCCESS :success
+                    ReportRequestStatusType/ERROR   :error
+                    ReportRequestStatusType/PENDING :pending})
+
+(defn poll-report [reporting-service request-id]
+  (let [poll-request (doto (PollGenerateReportRequest. )
+                       (.setReportRequestId request-id))
+        response     (.pollGenerateReport (.getService reporting-service) poll-request)
+        status       (.getReportRequestStatus response)]
+    {:report-url     (.getReportDownloadUrl status)
+     :status         (report-status (.getStatus status))}))
