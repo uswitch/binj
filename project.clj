@@ -4,4 +4,6 @@
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.7.0"]
-                 [com.microsoft.bingads/microsoft.bingads "9.3.4"]])
+                 [com.microsoft.bingads/microsoft.bingads "9.3.4"]
+                 [clj-http-lite "0.2.1"]
+                 [org.clojure/data.csv "0.1.2"]])

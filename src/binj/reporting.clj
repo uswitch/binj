@@ -1,6 +1,12 @@
 (ns binj.reporting
   (:import [com.microsoft.bingads AuthorizationData PasswordAuthentication ServiceClient]
-           [com.microsoft.bingads.reporting IReportingService KeywordPerformanceReportRequest KeywordPerformanceReportColumn ReportFormat ReportAggregation AccountThroughAdGroupReportScope AccountReportScope ReportTime ReportTimePeriod ArrayOfKeywordPerformanceReportColumn SubmitGenerateReportRequest ArrayOflong ApiFaultDetail_Exception PollGenerateReportRequest ReportRequestStatusType]))
+           [com.microsoft.bingads.reporting IReportingService KeywordPerformanceReportRequest KeywordPerformanceReportColumn ReportFormat ReportAggregation AccountThroughAdGroupReportScope AccountReportScope ReportTime ReportTimePeriod ArrayOfKeywordPerformanceReportColumn SubmitGenerateReportRequest ArrayOflong ApiFaultDetail_Exception PollGenerateReportRequest ReportRequestStatusType]
+           [java.util.zip ZipInputStream]
+           [java.io StringWriter])
+  (:require [clj-http.lite.client :as http]
+            [clojure.string :as s]
+            [clojure.java.io :as io]
+            [clojure.data.csv :as csv]))
 
 
 (defn authorization-data [developer-token username password customer-id account-id]
@@ -34,10 +40,6 @@
                                  :device-os       KeywordPerformanceReportColumn/DEVICE_OS
                                  :bid-match-type  KeywordPerformanceReportColumn/BID_MATCH_TYPE})
 
-(def report-format {:tsv ReportFormat/TSV
-                    :csv ReportFormat/CSV
-                    :xml ReportFormat/XML})
-
 (def report-aggregation {:summary     ReportAggregation/SUMMARY
                          :hourly      ReportAggregation/HOURLY
                          :daily       ReportAggregation/DAILY
@@ -68,16 +70,15 @@
     array-of-cols))
 
 (defn keyword-performance-report-request
-  [name account-ids columns & {:keys [format complete-only? aggregation time-period]
-                               :or   {format         :tsv
-                                      complete-only? true
+  [name account-ids columns & {:keys [complete-only? aggregation time-period]
+                               :or   {complete-only? true
                                       aggregation    :daily
                                       time-period    :yesterday}}]
   (let [account-longs (ArrayOflong.)]
     (doseq [id account-ids]
       (.add (.getLongs account-longs) id))
     (doto (KeywordPerformanceReportRequest. )
-      (.setFormat                 (report-format format))
+      (.setFormat                 ReportFormat/TSV)
       (.setReportName             name)
       (.setReturnOnlyCompleteData complete-only?)
       (.setAggregation            (report-aggregation aggregation))
@@ -109,3 +110,33 @@
         status       (.getReportRequestStatus response)]
     {:report-url     (.getReportDownloadUrl status)
      :status         (report-status (.getStatus status))}))
+
+(defn get-report [url]
+  (let [report (http/get url)]
+    report))
+
+(defn read-entry [zip-stream entry]
+  (let [header-rows 10
+        writer      (StringWriter. (.getSize entry))]
+    (io/copy zip-stream writer :encoding "UTF-8")
+    (let [record-lines       (s/join \newline (drop header-rows (s/split (.toString writer) #"\r\n")))
+          [header & records] (csv/read-csv record-lines :separator \tab)]
+      {:name      (.getName entry)
+       :directory (.isDirectory entry)
+       :size      (.getSize entry)
+       :header    header
+       :records   (map (fn [record] (apply hash-map (interleave header record))) records)})))
+
+(defn entries-seq [report-url]
+  (let [{:keys [body]} (http/get report-url {:as :stream})
+        zip-stream (ZipInputStream. body)]
+    (loop [entry   (.getNextEntry zip-stream)
+           entries (list)]
+      (if (nil? entry)
+        entries
+        (let [added (conj entries (read-entry zip-stream entry))]
+          (recur (.getNextEntry zip-stream) added))))))
+
+(defn record-seq [report-url]
+  (->> (entries-seq report-url)
+       (remove :directory)))
