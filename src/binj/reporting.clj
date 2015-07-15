@@ -1,6 +1,6 @@
 (ns binj.reporting
   (:import [com.microsoft.bingads AuthorizationData PasswordAuthentication ServiceClient]
-           [com.microsoft.bingads.reporting IReportingService KeywordPerformanceReportRequest KeywordPerformanceReportColumn ReportFormat ReportAggregation AccountThroughAdGroupReportScope ReportTime ReportTimePeriod ArrayOfKeywordPerformanceReportColumn SubmitGenerateReportRequest]))
+           [com.microsoft.bingads.reporting IReportingService KeywordPerformanceReportRequest KeywordPerformanceReportColumn ReportFormat ReportAggregation AccountThroughAdGroupReportScope AccountReportScope ReportTime ReportTimePeriod ArrayOfKeywordPerformanceReportColumn SubmitGenerateReportRequest ArrayOflong]))
 
 
 (defn authorization-data [developer-token username password customer-id account-id]
@@ -27,7 +27,7 @@
                                  :quality-score   KeywordPerformanceReportColumn/QUALITY_SCORE
                                  :account-status  KeywordPerformanceReportColumn/ACCOUNT_STATUS
                                  :campaign-status KeywordPerformanceReportColumn/CAMPAIGN_STATUS
-                                 :keyword-status  KeywordPerformanceReportColumn/KEYWORD_STATUS
+                                 :ekyword-status  KeywordPerformanceReportColumn/KEYWORD_STATUS
                                  :network         KeywordPerformanceReportColumn/NETWORK
                                  :device-type     KeywordPerformanceReportColumn/DEVICE_TYPE
                                  :device-os       KeywordPerformanceReportColumn/DEVICE_OS
@@ -46,7 +46,7 @@
                          :hour-of-day ReportAggregation/HOUR_OF_DAY
                          :day-of-week ReportAggregation/DAY_OF_WEEK})
 
-;;(def report-scope {:account-through-adgroup (AccountThroughAdGroupReportScope. )})
+(def report-scope {:account (AccountReportScope. )})
 
 (def report-time-period {:yesterday   ReportTimePeriod/YESTERDAY
                          :today       ReportTimePeriod/TODAY
@@ -67,19 +67,23 @@
     array-of-cols))
 
 (defn keyword-performance-report-request
-  [name columns & {:keys [format complete-only? aggregation scope time-period]
-                   :or   {format         :tsv
-                          complete-only? true
-                          aggregation    :daily
-                          scope          :account-through-campaign
-                          time-period    :yes}}]
-  (doto (KeywordPerformanceReportRequest. )
-    (.setFormat                 (report-format format))
-    (.setReportName             name)
-    (.setReturnOnlyCompleteData complete-only?)
-    (.setAggregation            (report-aggregation aggregation))
-    (.setTime                   (report-time time-period))
-    (.setColumns                (keyword-performance-report-columns columns))))
+  [name account-ids columns & {:keys [format complete-only? aggregation time-period]
+                               :or   {format         :tsv
+                                      complete-only? true
+                                      aggregation    :daily
+                                      time-period    :yes}}]
+  (let [account-longs (ArrayOflong.)]
+    (doseq [id account-ids]
+      (.add (.getLongs account-longs) id))
+    (doto (KeywordPerformanceReportRequest. )
+      (.setFormat                 (report-format format))
+      (.setReportName             name)
+      (.setReturnOnlyCompleteData complete-only?)
+      (.setAggregation            (report-aggregation aggregation))
+      (.setScope                  (doto (AccountThroughAdGroupReportScope. )
+                                    (.setAccountIds account-longs)))
+      (.setTime                   (report-time time-period))
+      (.setColumns                (keyword-performance-report-columns columns)))))
 
 (defn generate-report [reporting-service report-request]
   (let [generate-request (doto (SubmitGenerateReportRequest.)
