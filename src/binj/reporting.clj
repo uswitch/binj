@@ -87,33 +87,10 @@
       (.setTime                   (report-time time-period))
       (.setColumns                (keyword-performance-report-columns columns)))))
 
-(defn generate-report [reporting-service report-request]
-  (let [generate-request (doto (SubmitGenerateReportRequest.)
-                           (.setReportRequest report-request))]
-    (try
-      {:request-id (.getReportRequestId (.submitGenerateReport (.getService reporting-service) generate-request))}
-      (catch ApiFaultDetail_Exception e
-        (let [fault-info (.getFaultInfo e)]
-          {:error {:operation-errors (map (fn [e] {:code    (.getCode e)
-                                                  :details (.getDetails e)
-                                                  :message (.getMessage e)})
-                                          (.. fault-info getOperationErrors getOperationErrors))}})))))
-
 (def report-status {ReportRequestStatusType/SUCCESS :success
                     ReportRequestStatusType/ERROR   :error
                     ReportRequestStatusType/PENDING :pending})
 
-(defn poll-report [reporting-service request-id]
-  (let [poll-request (doto (PollGenerateReportRequest. )
-                       (.setReportRequestId request-id))
-        response     (.pollGenerateReport (.getService reporting-service) poll-request)
-        status       (.getReportRequestStatus response)]
-    {:report-url     (.getReportDownloadUrl status)
-     :status         (report-status (.getStatus status))}))
-
-(defn get-report [url]
-  (let [report (http/get url)]
-    report))
 
 (defn read-entry [zip-stream entry]
   (let [header-rows 10
@@ -125,7 +102,7 @@
        :directory (.isDirectory entry)
        :size      (.getSize entry)
        :header    header
-       :records   (map (fn [record] (apply hash-map (interleave header record))) records)})))
+       :records   (map (fn [record] (apply array-map (interleave header record))) records)})))
 
 (defn entries-seq [report-url]
   (let [{:keys [body]} (http/get report-url {:as :stream})
@@ -137,6 +114,37 @@
         (let [added (conj entries (read-entry zip-stream entry))]
           (recur (.getNextEntry zip-stream) added))))))
 
-(defn record-seq [report-url]
+
+
+(defn generate-report
+  "Submits the report request to the API. Returns a map with an :error
+  if the request can't be processed. If successful returns :request-id
+  that can be used with poll-report."
+  [reporting-service report-request]
+  (let [generate-request (doto (SubmitGenerateReportRequest.)
+                           (.setReportRequest report-request))]
+    (try
+      {:request-id (.getReportRequestId (.submitGenerateReport (.getService reporting-service) generate-request))}
+      (catch ApiFaultDetail_Exception e
+        (let [fault-info (.getFaultInfo e)]
+          {:error {:operation-errors (map (fn [e] {:code    (.getCode e)
+                                                  :details (.getDetails e)
+                                                  :message (.getMessage e)})
+                                          (.. fault-info getOperationErrors getOperationErrors))}})))))
+
+(defn poll-report
+  "Retrieves the report's download URL and its status (:success, :pending etc.)"
+  [reporting-service request-id]
+  (let [poll-request (doto (PollGenerateReportRequest. )
+                       (.setReportRequestId request-id))
+        response     (.pollGenerateReport (.getService reporting-service) poll-request)
+        status       (.getReportRequestStatus response)]
+    {:report-url     (.getReportDownloadUrl status)
+     :status         (report-status (.getStatus status))}))
+
+(defn record-seq
+  "Downloads the report and returns an array-map for each report row."
+  [report-url]
   (->> (entries-seq report-url)
-       (remove :directory)))
+       (remove :directory)
+       (mapcat :records)))
