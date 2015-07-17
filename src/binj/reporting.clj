@@ -6,7 +6,9 @@
   (:require [clj-http.lite.client :as http]
             [clojure.string :as s]
             [clojure.java.io :as io]
-            [clojure.data.csv :as csv]))
+            [clojure.data.csv :as csv]
+            [clj-time.format :as tf]
+            [clj-time.coerce :as tc]))
 
 
 (defn authorization-data [developer-token username password customer-id account-id]
@@ -34,7 +36,7 @@
                                  :quality-score   KeywordPerformanceReportColumn/QUALITY_SCORE
                                  :account-status  KeywordPerformanceReportColumn/ACCOUNT_STATUS
                                  :campaign-status KeywordPerformanceReportColumn/CAMPAIGN_STATUS
-                                 :ekyword-status  KeywordPerformanceReportColumn/KEYWORD_STATUS
+                                 :keyword-status  KeywordPerformanceReportColumn/KEYWORD_STATUS
                                  :network         KeywordPerformanceReportColumn/NETWORK
                                  :device-type     KeywordPerformanceReportColumn/DEVICE_TYPE
                                  :device-os       KeywordPerformanceReportColumn/DEVICE_OS
@@ -91,12 +93,18 @@
                     ReportRequestStatusType/ERROR   :error
                     ReportRequestStatusType/PENDING :pending})
 
+(defn lines [string-writer]
+  (s/split (.toString string-writer) #"\r\n"))
 
 (defn read-entry [zip-stream entry]
   (let [header-rows 10
+        footer-rows 2
         writer      (StringWriter. (.getSize entry))]
     (io/copy zip-stream writer :encoding "UTF-8")
-    (let [record-lines       (s/join \newline (drop header-rows (s/split (.toString writer) #"\r\n")))
+    (let [record-lines       (->> (lines writer)
+                                  (drop header-rows)
+                                  (drop-last footer-rows)
+                                  (s/join \newline))
           [header & records] (csv/read-csv record-lines :separator \tab)]
       {:name      (.getName entry)
        :directory (.isDirectory entry)
@@ -142,9 +150,28 @@
     {:report-url     (.getReportDownloadUrl status)
      :status         (report-status (.getStatus status))}))
 
+(def gregorian-date-format (tf/formatter "MM/dd/yyyy"))
+
+(defn parse-date [s] (tc/to-local-date (tf/parse gregorian-date-format s)))
+(defn parse-long [s] (Long/valueOf s))
+(defn parse-double [s] (Double/parseDouble s))
+
+(def parsers {"GregorianDate" parse-date
+              "Impressions"   parse-long
+              "Clicks"        parse-long
+              "Spend"         parse-double
+              "AverageCpc"    parse-double})
+
+(defn parser [k]
+  (or (parsers k) identity))
+
+(defn coerce-record [m]
+  m)
+
 (defn record-seq
   "Downloads the report and returns an array-map for each report row."
   [report-url]
   (->> (entries-seq report-url)
        (remove :directory)
-       (mapcat :records)))
+       (mapcat :records)
+       (map coerce-record)))
