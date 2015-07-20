@@ -166,7 +166,10 @@
   (or (parsers k) identity))
 
 (defn coerce-record [m]
-  m)
+  (into (array-map)
+        (for [[k v] m]
+          (let [f (parser k)]
+            [k (f v)]))))
 
 (defn record-seq
   "Downloads the report and returns an array-map for each report row."
