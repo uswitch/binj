@@ -3,25 +3,46 @@
            [com.microsoft.bingads.internal OAuthWithAuthorizationCode LiveComOAuthService]
            [com.microsoft.bingads.reporting IReportingService KeywordPerformanceReportRequest KeywordPerformanceReportColumn ReportFormat ReportAggregation AccountThroughAdGroupReportScope AccountReportScope ReportTime ReportTimePeriod ArrayOfKeywordPerformanceReportColumn SubmitGenerateReportRequest ArrayOflong PollGenerateReportRequest ReportRequestStatusType AccountPerformanceReportColumn AccountPerformanceReportRequest AccountReportScope ArrayOfAccountPerformanceReportColumn AdApiFaultDetail_Exception]
            [java.util.zip ZipInputStream]
-           [java.io StringWriter]
+           [java.io StringWriter FileNotFoundException]
            [java.net URL])
   (:require [clj-http.lite.client :as http]
             [clojure.string :as s]
             [clojure.java.io :as io]
             [clojure.data.csv :as csv]
+            [clojure.edn :as edn]
             [clj-time.format :as tf]
             [clj-time.coerce :as tc]))
 
-(defn oauth-code-grant [client-id]
-  (let [listener (proxy [NewOAuthTokensReceivedListener] []
-                   (onNewOAuthTokensReceived [tokens]
-                     (let [access-token (.getAccessToken tokens)
-                           refresh-token (.getRefreshToken tokens)]
-                       (println "refresh time:" (java.util.Date. ))
-                       (println "access token:" access-token)
-                       (println "refresh token:" refresh-token))))]
-    (doto (OAuthDesktopMobileAuthCodeGrant. client-id)
-      (.setNewTokensListener listener))))
+(defn token-file-listener [file]
+  (when file
+    (proxy [NewOAuthTokensReceivedListener] []
+      (onNewOAuthTokensReceived [tokens]
+        (->> {:access-token (.getAccessToken tokens)
+              :refresh-token (.getRefreshToken tokens)}
+             (pr-str)
+             (spit file))))))
+
+(defn- read-token [file]
+  (try
+    (edn/read-string (slurp file))
+    (catch FileNotFoundException e
+      nil)))
+
+(defn oauth-code-grant
+  "Creates OAuth compatible code grant. When given just a client-id can
+  be used to retrieve access and refresh tokens. If a refresh token has
+  already been retrieved can use token-file instead- refresh tokens will
+  automatically be saved here also."
+  [client-id & {:keys [token-file]}]
+  (let [tokens (read-token token-file)]
+    (if-let [tokens (read-token token-file)]
+      (let [refresh-token (:refresh-token tokens)]
+        (doto (OAuthDesktopMobileAuthCodeGrant. client-id refresh-token)
+          (.setNewTokensListener (token-file-listener token-file))))
+      (let [grant (OAuthDesktopMobileAuthCodeGrant. client-id)]
+        (when token-file
+          (.setNewTokensListener grant (token-file-listener token-file)))
+        grant))))
 
 (defn authorization-url [grant]
   (.getAuthorizationEndpoint grant))
