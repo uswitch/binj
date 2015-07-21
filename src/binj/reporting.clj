@@ -1,8 +1,10 @@
 (ns binj.reporting
-  (:import [com.microsoft.bingads AuthorizationData PasswordAuthentication ServiceClient]
-           [com.microsoft.bingads.reporting IReportingService KeywordPerformanceReportRequest KeywordPerformanceReportColumn ReportFormat ReportAggregation AccountThroughAdGroupReportScope AccountReportScope ReportTime ReportTimePeriod ArrayOfKeywordPerformanceReportColumn SubmitGenerateReportRequest ArrayOflong ApiFaultDetail_Exception PollGenerateReportRequest ReportRequestStatusType]
+  (:import [com.microsoft.bingads AuthorizationData PasswordAuthentication ServiceClient OAuthDesktopMobileAuthCodeGrant NewOAuthTokensReceivedListener OAuthWebAuthCodeGrant]
+           [com.microsoft.bingads.internal OAuthWithAuthorizationCode LiveComOAuthService]
+           [com.microsoft.bingads.reporting IReportingService KeywordPerformanceReportRequest KeywordPerformanceReportColumn ReportFormat ReportAggregation AccountThroughAdGroupReportScope AccountReportScope ReportTime ReportTimePeriod ArrayOfKeywordPerformanceReportColumn SubmitGenerateReportRequest ArrayOflong PollGenerateReportRequest ReportRequestStatusType AccountPerformanceReportColumn AccountPerformanceReportRequest AccountReportScope ArrayOfAccountPerformanceReportColumn AdApiFaultDetail_Exception]
            [java.util.zip ZipInputStream]
-           [java.io StringWriter])
+           [java.io StringWriter]
+           [java.net URL])
   (:require [clj-http.lite.client :as http]
             [clojure.string :as s]
             [clojure.java.io :as io]
@@ -10,15 +12,48 @@
             [clj-time.format :as tf]
             [clj-time.coerce :as tc]))
 
+(defn oauth-code-grant [client-id]
+  (let [listener (proxy [NewOAuthTokensReceivedListener] []
+                   (onNewOAuthTokensReceived [tokens]
+                     (let [access-token (.getAccessToken tokens)
+                           refresh-token (.getRefreshToken tokens)]
+                       (println "refresh time:" (java.util.Date. ))
+                       (println "access token:" access-token)
+                       (println "refresh token:" refresh-token))))]
+    (doto (OAuthDesktopMobileAuthCodeGrant. client-id)
+      (.setNewTokensListener listener))))
 
-(defn authorization-data [developer-token username password customer-id account-id]
-  {:pre [(number? customer-id)
-         (number? account-id)]}
-  (doto (AuthorizationData. )
-    (.setDeveloperToken developer-token)
-    (.setAuthentication (PasswordAuthentication. username password))
-    (.setCustomerId     customer-id)
-    (.setAccountId      account-id)))
+(defn authorization-url [grant]
+  (.getAuthorizationEndpoint grant))
+
+(defn- coerce-to-url [url]
+  (if (instance? URL url)
+    url
+    (URL. url)))
+
+(defn request-access-refresh-tokens [grant authorized-url]
+  (try
+    (let [url    (coerce-to-url authorized-url)
+          tokens (.requestAccessAndRefreshTokens grant url)]
+      {:access-token (.getAccessToken tokens)
+       :refresh-token (.getRefreshToken tokens)})
+    (catch Exception e
+      (let [details (.getDetails e)]
+        (throw (ex-info "Error requesting tokens"
+                        {:error (.getError details)
+                         :description (.getDescription details)}))))))
+
+(defn authorization-data
+  ([developer-token oauth-code-grant]
+   (doto (AuthorizationData. )
+     (.setDeveloperToken developer-token)
+     (.setAuthentication oauth-code-grant)))
+  ([developer-token username password customer-id account-id]
+   (doto (AuthorizationData. )
+     (.setDeveloperToken developer-token)
+     (.setAuthentication (PasswordAuthentication. username password))
+     (.setCustomerId     customer-id)
+     (.setAccountId      account-id))))
 
 (defn reporting-service [authorization-data]
   (ServiceClient. authorization-data IReportingService))
@@ -41,6 +76,19 @@
                                  :device-type     KeywordPerformanceReportColumn/DEVICE_TYPE
                                  :device-os       KeywordPerformanceReportColumn/DEVICE_OS
                                  :bid-match-type  KeywordPerformanceReportColumn/BID_MATCH_TYPE})
+
+
+(def account-performance-column {:account-name    AccountPerformanceReportColumn/ACCOUNT_NAME
+                                 :account-number  AccountPerformanceReportColumn/ACCOUNT_NUMBER
+                                 :account-id      AccountPerformanceReportColumn/ACCOUNT_ID
+                                 :time-period     AccountPerformanceReportColumn/TIME_PERIOD
+                                 :impressions     AccountPerformanceReportColumn/IMPRESSIONS
+                                 :clicks          AccountPerformanceReportColumn/CLICKS
+                                 :spend           AccountPerformanceReportColumn/SPEND
+                                 :average-cpc     AccountPerformanceReportColumn/AVERAGE_CPC
+                                 :network         AccountPerformanceReportColumn/NETWORK
+                                 :device-type     AccountPerformanceReportColumn/DEVICE_TYPE
+                                 :device-os       AccountPerformanceReportColumn/DEVICE_OS})
 
 (def report-aggregation {:summary     ReportAggregation/SUMMARY
                          :hourly      ReportAggregation/HOURLY
@@ -71,6 +119,7 @@
       (.add (.getKeywordPerformanceReportColumns array-of-cols) c))
     array-of-cols))
 
+
 (defn keyword-performance-report-request
   [name account-ids columns & {:keys [complete-only? aggregation time-period]
                                :or   {complete-only? true
@@ -88,6 +137,33 @@
                                     (.setAccountIds account-longs)))
       (.setTime                   (report-time time-period))
       (.setColumns                (keyword-performance-report-columns columns)))))
+
+
+(defn account-performance-report-columns [cols]
+  (let [cols          (map (partial get account-performance-column) cols)
+        array-of-cols (ArrayOfAccountPerformanceReportColumn. )]
+    (doseq [c cols]
+      (.add (.getAccountPerformanceReportColumns array-of-cols) c))
+    array-of-cols))
+
+(defn account-performance-report-request
+  [name account-ids columns & {:keys [complete-only? aggregation time-period]
+                               :or   {complete-only? true
+                                      aggregation    :daily
+                                      time-period    :yesterday}}]
+
+  (let [account-longs (ArrayOflong.)]
+    (doseq [id account-ids]
+      (.add (.getLongs account-longs) id))
+    (doto (AccountPerformanceReportRequest. )
+      (.setFormat                 ReportFormat/TSV)
+      (.setReportName             name)
+      (.setReturnOnlyCompleteData complete-only?)
+      (.setAggregation            (report-aggregation aggregation))
+      (.setScope                  (doto (AccountReportScope. )
+                                    (.setAccountIds account-longs)))
+      (.setTime                   (report-time time-period))
+      (.setColumns                (account-performance-report-columns columns)))))
 
 (def report-status {ReportRequestStatusType/SUCCESS :success
                     ReportRequestStatusType/ERROR   :error
@@ -133,12 +209,12 @@
                            (.setReportRequest report-request))]
     (try
       {:request-id (.getReportRequestId (.submitGenerateReport (.getService reporting-service) generate-request))}
-      (catch ApiFaultDetail_Exception e
+      (catch AdApiFaultDetail_Exception e
         (let [fault-info (.getFaultInfo e)]
           {:error {:operation-errors (map (fn [e] {:code    (.getCode e)
-                                                  :details (.getDetails e)
+                                                  :details (.getDetail e)
                                                   :message (.getMessage e)})
-                                          (.. fault-info getOperationErrors getOperationErrors))}})))))
+                                          (.. fault-info getErrors getAdApiErrors))}})))))
 
 (defn poll-report
   "Retrieves the report's download URL and its status (:success, :pending etc.)"
