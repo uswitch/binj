@@ -1,7 +1,7 @@
 (ns binj.reporting
   (:import [com.microsoft.bingads AuthorizationData PasswordAuthentication ServiceClient OAuthDesktopMobileAuthCodeGrant NewOAuthTokensReceivedListener OAuthWebAuthCodeGrant]
            [com.microsoft.bingads.internal OAuthWithAuthorizationCode LiveComOAuthService]
-           [com.microsoft.bingads.reporting IReportingService KeywordPerformanceReportRequest KeywordPerformanceReportColumn ReportFormat ReportAggregation AccountThroughAdGroupReportScope AccountReportScope ReportTime ReportTimePeriod ArrayOfKeywordPerformanceReportColumn SubmitGenerateReportRequest ArrayOflong PollGenerateReportRequest ReportRequestStatusType AccountPerformanceReportColumn AccountPerformanceReportRequest AccountReportScope ArrayOfAccountPerformanceReportColumn AdApiFaultDetail_Exception]
+           [com.microsoft.bingads.reporting Date IReportingService KeywordPerformanceReportRequest KeywordPerformanceReportColumn ReportFormat ReportAggregation AccountThroughAdGroupReportScope AccountReportScope ReportTime ReportTimePeriod ArrayOfKeywordPerformanceReportColumn SubmitGenerateReportRequest ArrayOflong PollGenerateReportRequest ReportRequestStatusType AccountPerformanceReportColumn AccountPerformanceReportRequest AccountReportScope ArrayOfAccountPerformanceReportColumn AdApiFaultDetail_Exception]
            [java.util.zip ZipInputStream]
            [java.io StringWriter FileNotFoundException]
            [java.net URL])
@@ -23,10 +23,11 @@
              (spit file))))))
 
 (defn- read-token [file]
-  (try
-    (edn/read-string (slurp file))
-    (catch FileNotFoundException e
-      nil)))
+  (when file
+    (try
+      (edn/read-string (slurp file))
+      (catch FileNotFoundException e
+        nil))))
 
 (defn oauth-code-grant
   "Creates OAuth compatible code grant. When given just a client-id can
@@ -81,6 +82,8 @@
 
 (def keyword-performance-column {:account-name    KeywordPerformanceReportColumn/ACCOUNT_NAME
                                  :account-number  KeywordPerformanceReportColumn/ACCOUNT_NUMBER
+                                 :ad-group-name   KeywordPerformanceReportColumn/AD_GROUP_NAME
+                                 :ad-group-id     KeywordPerformanceReportColumn/AD_GROUP_ID
                                  :campaign-name   KeywordPerformanceReportColumn/CAMPAIGN_NAME
                                  :account-id      KeywordPerformanceReportColumn/ACCOUNT_ID
                                  :time-period     KeywordPerformanceReportColumn/TIME_PERIOD
@@ -129,9 +132,28 @@
                          :this-year   ReportTimePeriod/THIS_YEAR
                          :last-year   ReportTimePeriod/LAST_YEAR})
 
-(defn report-time [period]
-  (doto (ReportTime. )
-    (.setPredefinedTime (report-time-period period))))
+(defprotocol ToBingDate
+  (to-bing-date [x]))
+
+(extend-protocol ToBingDate
+  org.joda.time.DateTime
+  (to-bing-date [x] (doto (Date.)
+                      (.setYear (.getYear x))
+                      (.setMonth (.getMonthOfYear x))
+                      (.setDay (.getDayOfMonth x)))))
+
+(defn report-time
+  "Defines a reporting period. Can either be a pre-defined interval, or
+  a custom date range with start and end dates. Dates must extend
+  ToBingDate protocol."
+  [period]
+  (cond (keyword? period) (doto (ReportTime. )
+                            (.setPredefinedTime (report-time-period period)))
+        (map? period)     (let [{:keys [start end]} period]
+                            (doto (ReportTime. )
+                              (.setCustomDateRangeStart (to-bing-date start))
+                              (.setCustomDateRangeEnd (to-bing-date end))))
+        :else             (throw (ex-info "invalid report-time period." {:period period}))))
 
 (defn keyword-performance-report-columns [cols]
   (let [cols          (map (partial get keyword-performance-column) cols)

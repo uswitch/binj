@@ -1,4 +1,4 @@
-(defproject binj "0.1.0"
+(defproject binj "0.1.1-SNAPSHOT"
   :description "Clojure library to interact with the Bing Ads API"
   :url "https://github.com/uswitch/binj"
   :license {:name "Eclipse Public License"
