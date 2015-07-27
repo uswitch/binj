@@ -1,7 +1,8 @@
 (ns binj.reporting
   (:import [com.microsoft.bingads AuthorizationData PasswordAuthentication ServiceClient OAuthDesktopMobileAuthCodeGrant NewOAuthTokensReceivedListener OAuthWebAuthCodeGrant]
+           [com.microsoft.bingads PasswordAuthentication]
            [com.microsoft.bingads.internal OAuthWithAuthorizationCode LiveComOAuthService]
-           [com.microsoft.bingads.reporting Date IReportingService KeywordPerformanceReportRequest KeywordPerformanceReportColumn ReportFormat ReportAggregation AccountThroughAdGroupReportScope AccountReportScope ReportTime ReportTimePeriod ArrayOfKeywordPerformanceReportColumn SubmitGenerateReportRequest ArrayOflong PollGenerateReportRequest ReportRequestStatusType AccountPerformanceReportColumn AccountPerformanceReportRequest AccountReportScope ArrayOfAccountPerformanceReportColumn AdApiFaultDetail_Exception]
+           [com.microsoft.bingads.reporting Date IReportingService KeywordPerformanceReportRequest KeywordPerformanceReportColumn ReportFormat ReportAggregation AccountThroughAdGroupReportScope AccountReportScope ReportTime ReportTimePeriod ArrayOfKeywordPerformanceReportColumn SubmitGenerateReportRequest ArrayOflong PollGenerateReportRequest ReportRequestStatusType AccountPerformanceReportColumn AccountPerformanceReportRequest AccountReportScope ArrayOfAccountPerformanceReportColumn ApiFaultDetail_Exception]
            [java.util.zip ZipInputStream]
            [java.io StringWriter FileNotFoundException]
            [java.net URL])
@@ -28,6 +29,10 @@
       (edn/read-string (slurp file))
       (catch FileNotFoundException e
         nil))))
+
+(defn password-grant
+  [username password]
+  (PasswordAuthentication. username password))
 
 (defn oauth-code-grant
   "Creates OAuth compatible code grant. When given just a client-id can
@@ -66,16 +71,15 @@
                          :description (.getDescription details)}))))))
 
 (defn authorization-data
-  ([developer-token oauth-code-grant]
-   (doto (AuthorizationData. )
-     (.setDeveloperToken developer-token)
-     (.setAuthentication oauth-code-grant)))
-  ([developer-token username password customer-id account-id]
-   (doto (AuthorizationData. )
-     (.setDeveloperToken developer-token)
-     (.setAuthentication (PasswordAuthentication. username password))
-     (.setCustomerId     customer-id)
-     (.setAccountId      account-id))))
+  [developer-token authentication & {:keys [customer-id account-id]}]
+  (let [authorize (AuthorizationData. )]
+    (.setDeveloperToken authorize developer-token)
+    (.setAuthentication authorize authentication)
+    (when customer-id
+      (.setCustomerId authorize customer-id))
+    (when account-id
+      (.setAccountId authorize account-id))
+    authorize))
 
 (defn reporting-service [authorization-data]
   (ServiceClient. authorization-data IReportingService))
@@ -252,12 +256,14 @@
                            (.setReportRequest report-request))]
     (try
       {:request-id (.getReportRequestId (.submitGenerateReport (.getService reporting-service) generate-request))}
-      (catch AdApiFaultDetail_Exception e
+      (catch ApiFaultDetail_Exception e
         (let [fault-info (.getFaultInfo e)]
-          {:error {:operation-errors (map (fn [e] {:code    (.getCode e)
-                                                  :details (.getDetail e)
-                                                  :message (.getMessage e)})
-                                          (.. fault-info getErrors getAdApiErrors))}})))))
+          (throw (ex-info "error generating report."
+                          {:operation-errors (map (fn [e] {:code       (.getCode e)
+                                                          :error-code (.getErrorCode e)
+                                                          :details    (.getDetails e)
+                                                          :message    (.getMessage e)})
+                                                  (.. fault-info getOperationErrors getOperationErrors))})))))))
 
 (defn poll-report
   "Retrieves the report's download URL and its status (:success, :pending etc.)"
