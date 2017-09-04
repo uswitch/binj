@@ -2,7 +2,7 @@
   (:import [com.microsoft.bingads AuthorizationData PasswordAuthentication ServiceClient OAuthDesktopMobileAuthCodeGrant NewOAuthTokensReceivedListener OAuthWebAuthCodeGrant]
            [com.microsoft.bingads PasswordAuthentication]
            [com.microsoft.bingads.internal OAuthWithAuthorizationCode LiveComOAuthService]
-           [com.microsoft.bingads.reporting Date IReportingService KeywordPerformanceReportRequest KeywordPerformanceReportColumn ReportFormat ReportAggregation AccountThroughAdGroupReportScope AccountReportScope ReportTime ReportTimePeriod ArrayOfKeywordPerformanceReportColumn SubmitGenerateReportRequest ArrayOflong PollGenerateReportRequest ReportRequestStatusType AccountPerformanceReportColumn AccountPerformanceReportRequest AccountReportScope ArrayOfAccountPerformanceReportColumn ApiFaultDetail_Exception]
+           [com.microsoft.bingads.reporting Date IReportingService KeywordPerformanceReportRequest KeywordPerformanceReportColumn ReportFormat ReportAggregation AccountThroughAdGroupReportScope AccountReportScope ReportTime ReportTimePeriod ArrayOfKeywordPerformanceReportColumn SubmitGenerateReportRequest ArrayOflong PollGenerateReportRequest ReportRequestStatusType AccountPerformanceReportColumn AccountPerformanceReportRequest AccountReportScope ArrayOfAccountPerformanceReportColumn AdApiFaultDetail_Exception]
            [java.util.zip ZipInputStream]
            [java.io StringWriter FileNotFoundException]
            [java.net URL])
@@ -256,14 +256,14 @@
                            (.setReportRequest report-request))]
     (try
       {:request-id (.getReportRequestId (.submitGenerateReport (.getService reporting-service) generate-request))}
-      (catch ApiFaultDetail_Exception e
+      (catch AdApiFaultDetail_Exception e
         (let [fault-info (.getFaultInfo e)]
           (throw (ex-info "error generating report."
                           {:operation-errors (map (fn [e] {:code       (.getCode e)
                                                           :error-code (.getErrorCode e)
-                                                          :details    (.getDetails e)
+                                                          :details    (.getDetail e)
                                                           :message    (.getMessage e)})
-                                                  (.. fault-info getOperationErrors getOperationErrors))})))))))
+                                                  (.. fault-info getErrors getAdApiErrors))})))))))
 
 (defn poll-report
   "Retrieves the report's download URL and its status (:success, :pending etc.)"
