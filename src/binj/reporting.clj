@@ -1,7 +1,20 @@
 (ns binj.reporting
-  (:import [com.microsoft.bingads ServiceClient AuthorizationData PasswordAuthentication OAuthDesktopMobileAuthCodeGrant NewOAuthTokensReceivedListener]
-           [com.microsoft.bingads PasswordAuthentication]
-           [com.microsoft.bingads.v11.reporting ReportingServiceManager Date IReportingService KeywordPerformanceReportRequest KeywordPerformanceReportColumn ReportFormat ReportAggregation AccountThroughAdGroupReportScope AccountReportScope ReportTime ReportTimePeriod ArrayOfKeywordPerformanceReportColumn SubmitGenerateReportRequest ArrayOflong PollGenerateReportRequest ReportRequestStatusType AccountPerformanceReportColumn AccountPerformanceReportRequest ArrayOfAccountPerformanceReportColumn]
+  (:import [com.microsoft.bingads ServiceClient AuthorizationData OAuthDesktopMobileAuthCodeGrant NewOAuthTokensReceivedListener]
+           [com.microsoft.bingads.v12.reporting AccountPerformanceReportColumn
+                                                AccountPerformanceReportRequest
+                                                AccountReportScope
+                                                AccountThroughAdGroupReportScope
+                                                ArrayOfAccountPerformanceReportColumn
+                                                ArrayOfKeywordPerformanceReportColumn
+                                                ArrayOflong
+                                                Date
+                                                KeywordPerformanceReportColumn
+                                                KeywordPerformanceReportRequest
+                                                ReportAggregation
+                                                ReportFormat
+                                                ReportingServiceManager
+                                                ReportTime
+                                                ReportTimePeriod]
            [java.util.concurrent TimeUnit]
            [java.io StringWriter FileNotFoundException]
            [java.net URL])
@@ -28,10 +41,6 @@
       (edn/read-string (slurp file))
       (catch FileNotFoundException e
         nil))))
-
-(defn password-grant
-  [username password]
-  (PasswordAuthentication. username password))
 
 (defn oauth-code-grant
   "Creates OAuth compatible code grant. When given just a client-id can
@@ -80,39 +89,38 @@
       (.setAccountId authorize account-id))
     authorize))
 
-(def keyword-performance-column {:account-name    KeywordPerformanceReportColumn/ACCOUNT_NAME
+(def keyword-performance-column {:account-id      KeywordPerformanceReportColumn/ACCOUNT_ID
+                                 :account-name    KeywordPerformanceReportColumn/ACCOUNT_NAME
                                  :account-number  KeywordPerformanceReportColumn/ACCOUNT_NUMBER
-                                 :ad-group-name   KeywordPerformanceReportColumn/AD_GROUP_NAME
-                                 :ad-group-id     KeywordPerformanceReportColumn/AD_GROUP_ID
-                                 :campaign-name   KeywordPerformanceReportColumn/CAMPAIGN_NAME
-                                 :account-id      KeywordPerformanceReportColumn/ACCOUNT_ID
-                                 :time-period     KeywordPerformanceReportColumn/TIME_PERIOD
-                                 :keyword         KeywordPerformanceReportColumn/KEYWORD
-                                 :impressions     KeywordPerformanceReportColumn/IMPRESSIONS
-                                 :clicks          KeywordPerformanceReportColumn/CLICKS
-                                 :spend           KeywordPerformanceReportColumn/SPEND
-                                 :average-cpc     KeywordPerformanceReportColumn/AVERAGE_CPC
-                                 :quality-score   KeywordPerformanceReportColumn/QUALITY_SCORE
                                  :account-status  KeywordPerformanceReportColumn/ACCOUNT_STATUS
+                                 :ad-group-id     KeywordPerformanceReportColumn/AD_GROUP_ID
+                                 :ad-group-name   KeywordPerformanceReportColumn/AD_GROUP_NAME
+                                 :average-cpc     KeywordPerformanceReportColumn/AVERAGE_CPC
+                                 :bid-match-type  KeywordPerformanceReportColumn/BID_MATCH_TYPE
+                                 :campaign-name   KeywordPerformanceReportColumn/CAMPAIGN_NAME
                                  :campaign-status KeywordPerformanceReportColumn/CAMPAIGN_STATUS
+                                 :clicks          KeywordPerformanceReportColumn/CLICKS
+                                 :device-os       KeywordPerformanceReportColumn/DEVICE_OS
+                                 :device-type     KeywordPerformanceReportColumn/DEVICE_TYPE
+                                 :impressions     KeywordPerformanceReportColumn/IMPRESSIONS
+                                 :keyword         KeywordPerformanceReportColumn/KEYWORD
                                  :keyword-status  KeywordPerformanceReportColumn/KEYWORD_STATUS
                                  :network         KeywordPerformanceReportColumn/NETWORK
-                                 :device-type     KeywordPerformanceReportColumn/DEVICE_TYPE
-                                 :device-os       KeywordPerformanceReportColumn/DEVICE_OS
-                                 :bid-match-type  KeywordPerformanceReportColumn/BID_MATCH_TYPE})
+                                 :quality-score   KeywordPerformanceReportColumn/QUALITY_SCORE
+                                 :spend           KeywordPerformanceReportColumn/SPEND
+                                 :time-period     KeywordPerformanceReportColumn/TIME_PERIOD})
 
-
-(def account-performance-column {:account-name    AccountPerformanceReportColumn/ACCOUNT_NAME
+(def account-performance-column {:account-id      AccountPerformanceReportColumn/ACCOUNT_ID
+                                 :account-name    AccountPerformanceReportColumn/ACCOUNT_NAME
                                  :account-number  AccountPerformanceReportColumn/ACCOUNT_NUMBER
-                                 :account-id      AccountPerformanceReportColumn/ACCOUNT_ID
-                                 :time-period     AccountPerformanceReportColumn/TIME_PERIOD
-                                 :impressions     AccountPerformanceReportColumn/IMPRESSIONS
-                                 :clicks          AccountPerformanceReportColumn/CLICKS
-                                 :spend           AccountPerformanceReportColumn/SPEND
                                  :average-cpc     AccountPerformanceReportColumn/AVERAGE_CPC
-                                 :network         AccountPerformanceReportColumn/NETWORK
+                                 :clicks          AccountPerformanceReportColumn/CLICKS
+                                 :device-os       AccountPerformanceReportColumn/DEVICE_OS
                                  :device-type     AccountPerformanceReportColumn/DEVICE_TYPE
-                                 :device-os       AccountPerformanceReportColumn/DEVICE_OS})
+                                 :impressions     AccountPerformanceReportColumn/IMPRESSIONS
+                                 :network         AccountPerformanceReportColumn/NETWORK
+                                 :spend           AccountPerformanceReportColumn/SPEND
+                                 :time-period     AccountPerformanceReportColumn/TIME_PERIOD})
 
 (def report-aggregation {:summary     ReportAggregation/SUMMARY
                          :hourly      ReportAggregation/HOURLY
@@ -171,17 +179,17 @@
   (let [account-longs (ArrayOflong.)]
     (doseq [id account-ids]
       (.add (.getLongs account-longs) id))
-    (doto (KeywordPerformanceReportRequest. )
-      (.setFormat                 ReportFormat/TSV)
-      (.setReportName             name)
-      (.setReturnOnlyCompleteData complete-only?)
-      (.setAggregation            (report-aggregation aggregation))
-      (.setScope                  (doto (AccountThroughAdGroupReportScope. )
-                                    (.setAccountIds account-longs)))
-      (.setTime                   (report-time time-period))
-      (.setExcludeReportHeader    true)
-      (.setExcludeReportFooter    true)
-      (.setColumns                (keyword-performance-report-columns columns)))))
+      (doto (KeywordPerformanceReportRequest. )
+        (.setFormat                 ReportFormat/TSV)
+        (.setReportName             name)
+        (.setReturnOnlyCompleteData complete-only?)
+        (.setAggregation            (report-aggregation aggregation))
+        (.setScope                  (doto (AccountThroughAdGroupReportScope. )
+                                      (.setAccountIds account-longs)))
+        (.setTime                   (report-time time-period))
+        (.setExcludeReportHeader    true)
+        (.setExcludeReportFooter    true)
+        (.setColumns                (keyword-performance-report-columns columns)))))
 
 
 (defn account-performance-report-columns [cols]
@@ -253,4 +261,3 @@
         result (->> report-file report->maps (map coerce-record)) ]
     (.delete (io/file (str "/tmp/" filename)))
     result))
-
