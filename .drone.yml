@@ -1,0 +1,27 @@
+pipeline:
+  deps:
+    image: clojure:openjdk-8-lein-2.9.1
+    when:
+      event: push
+    commands:
+      - lein change local-repo set '"m2-repo"'
+      - lein deps
+
+  build:
+    group: A
+    image: clojure:openjdk-8-lein-2.9.1
+    when:
+      event: push
+    commands:
+      - lein change local-repo set '"m2-repo"'
+      - lein jar
+
+  release:
+    when:
+      event: push
+      branch: master
+    image: clojure:openjdk-8-lein-2.9.1
+    secrets: [ AWS_SECRET_ACCESS_KEY, AWS_ACCESS_KEY_ID ]
+    commands:
+      - lein change local-repo set '"m2-repo"'
+      - lein deploy releases
