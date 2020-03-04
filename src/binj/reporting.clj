@@ -1,17 +1,29 @@
 (ns binj.reporting
-  (:import [com.microsoft.bingads AuthorizationData PasswordAuthentication ServiceClient OAuthDesktopMobileAuthCodeGrant NewOAuthTokensReceivedListener OAuthWebAuthCodeGrant]
-           [com.microsoft.bingads PasswordAuthentication]
-           [com.microsoft.bingads.internal OAuthWithAuthorizationCode LiveComOAuthService]
-           [com.microsoft.bingads.reporting Date IReportingService KeywordPerformanceReportRequest KeywordPerformanceReportColumn ReportFormat ReportAggregation AccountThroughAdGroupReportScope AccountReportScope ReportTime ReportTimePeriod ArrayOfKeywordPerformanceReportColumn SubmitGenerateReportRequest ArrayOflong PollGenerateReportRequest ReportRequestStatusType AccountPerformanceReportColumn AccountPerformanceReportRequest AccountReportScope ArrayOfAccountPerformanceReportColumn AdApiFaultDetail_Exception]
-           [java.util.zip ZipInputStream]
+  (:import [com.microsoft.bingads ServiceClient AuthorizationData OAuthDesktopMobileAuthCodeGrant NewOAuthTokensReceivedListener]
+           [com.microsoft.bingads.v12.reporting AccountPerformanceReportColumn
+                                                AccountPerformanceReportRequest
+                                                AccountReportScope
+                                                AccountThroughAdGroupReportScope
+                                                ArrayOfAccountPerformanceReportColumn
+                                                ArrayOfKeywordPerformanceReportColumn
+                                                ArrayOflong
+                                                Date
+                                                KeywordPerformanceReportColumn
+                                                KeywordPerformanceReportRequest
+                                                ReportAggregation
+                                                ReportFormat
+                                                ReportingServiceManager
+                                                ReportTime
+                                                ReportTimePeriod]
+           [java.util.concurrent TimeUnit]
            [java.io StringWriter FileNotFoundException]
            [java.net URL])
+  (:import org.apache.commons.io.input.BOMInputStream)
   (:require [clj-http.lite.client :as http]
             [clojure.string :as s]
             [clojure.java.io :as io]
             [clojure.data.csv :as csv]
             [clojure.edn :as edn]
-            [clj-time.format :as tf]
             [clj-time.coerce :as tc]))
 
 (defn token-file-listener [file]
@@ -29,10 +41,6 @@
       (edn/read-string (slurp file))
       (catch FileNotFoundException e
         nil))))
-
-(defn password-grant
-  [username password]
-  (PasswordAuthentication. username password))
 
 (defn oauth-code-grant
   "Creates OAuth compatible code grant. When given just a client-id can
@@ -81,42 +89,38 @@
       (.setAccountId authorize account-id))
     authorize))
 
-(defn reporting-service [authorization-data]
-  (ServiceClient. authorization-data IReportingService))
-
-(def keyword-performance-column {:account-name    KeywordPerformanceReportColumn/ACCOUNT_NAME
+(def keyword-performance-column {:account-id      KeywordPerformanceReportColumn/ACCOUNT_ID
+                                 :account-name    KeywordPerformanceReportColumn/ACCOUNT_NAME
                                  :account-number  KeywordPerformanceReportColumn/ACCOUNT_NUMBER
-                                 :ad-group-name   KeywordPerformanceReportColumn/AD_GROUP_NAME
-                                 :ad-group-id     KeywordPerformanceReportColumn/AD_GROUP_ID
-                                 :campaign-name   KeywordPerformanceReportColumn/CAMPAIGN_NAME
-                                 :account-id      KeywordPerformanceReportColumn/ACCOUNT_ID
-                                 :time-period     KeywordPerformanceReportColumn/TIME_PERIOD
-                                 :keyword         KeywordPerformanceReportColumn/KEYWORD
-                                 :impressions     KeywordPerformanceReportColumn/IMPRESSIONS
-                                 :clicks          KeywordPerformanceReportColumn/CLICKS
-                                 :spend           KeywordPerformanceReportColumn/SPEND
-                                 :average-cpc     KeywordPerformanceReportColumn/AVERAGE_CPC
-                                 :quality-score   KeywordPerformanceReportColumn/QUALITY_SCORE
                                  :account-status  KeywordPerformanceReportColumn/ACCOUNT_STATUS
+                                 :ad-group-id     KeywordPerformanceReportColumn/AD_GROUP_ID
+                                 :ad-group-name   KeywordPerformanceReportColumn/AD_GROUP_NAME
+                                 :average-cpc     KeywordPerformanceReportColumn/AVERAGE_CPC
+                                 :bid-match-type  KeywordPerformanceReportColumn/BID_MATCH_TYPE
+                                 :campaign-name   KeywordPerformanceReportColumn/CAMPAIGN_NAME
                                  :campaign-status KeywordPerformanceReportColumn/CAMPAIGN_STATUS
+                                 :clicks          KeywordPerformanceReportColumn/CLICKS
+                                 :device-os       KeywordPerformanceReportColumn/DEVICE_OS
+                                 :device-type     KeywordPerformanceReportColumn/DEVICE_TYPE
+                                 :impressions     KeywordPerformanceReportColumn/IMPRESSIONS
+                                 :keyword         KeywordPerformanceReportColumn/KEYWORD
                                  :keyword-status  KeywordPerformanceReportColumn/KEYWORD_STATUS
                                  :network         KeywordPerformanceReportColumn/NETWORK
-                                 :device-type     KeywordPerformanceReportColumn/DEVICE_TYPE
-                                 :device-os       KeywordPerformanceReportColumn/DEVICE_OS
-                                 :bid-match-type  KeywordPerformanceReportColumn/BID_MATCH_TYPE})
+                                 :quality-score   KeywordPerformanceReportColumn/QUALITY_SCORE
+                                 :spend           KeywordPerformanceReportColumn/SPEND
+                                 :time-period     KeywordPerformanceReportColumn/TIME_PERIOD})
 
-
-(def account-performance-column {:account-name    AccountPerformanceReportColumn/ACCOUNT_NAME
+(def account-performance-column {:account-id      AccountPerformanceReportColumn/ACCOUNT_ID
+                                 :account-name    AccountPerformanceReportColumn/ACCOUNT_NAME
                                  :account-number  AccountPerformanceReportColumn/ACCOUNT_NUMBER
-                                 :account-id      AccountPerformanceReportColumn/ACCOUNT_ID
-                                 :time-period     AccountPerformanceReportColumn/TIME_PERIOD
-                                 :impressions     AccountPerformanceReportColumn/IMPRESSIONS
-                                 :clicks          AccountPerformanceReportColumn/CLICKS
-                                 :spend           AccountPerformanceReportColumn/SPEND
                                  :average-cpc     AccountPerformanceReportColumn/AVERAGE_CPC
-                                 :network         AccountPerformanceReportColumn/NETWORK
+                                 :clicks          AccountPerformanceReportColumn/CLICKS
+                                 :device-os       AccountPerformanceReportColumn/DEVICE_OS
                                  :device-type     AccountPerformanceReportColumn/DEVICE_TYPE
-                                 :device-os       AccountPerformanceReportColumn/DEVICE_OS})
+                                 :impressions     AccountPerformanceReportColumn/IMPRESSIONS
+                                 :network         AccountPerformanceReportColumn/NETWORK
+                                 :spend           AccountPerformanceReportColumn/SPEND
+                                 :time-period     AccountPerformanceReportColumn/TIME_PERIOD})
 
 (def report-aggregation {:summary     ReportAggregation/SUMMARY
                          :hourly      ReportAggregation/HOURLY
@@ -175,15 +179,17 @@
   (let [account-longs (ArrayOflong.)]
     (doseq [id account-ids]
       (.add (.getLongs account-longs) id))
-    (doto (KeywordPerformanceReportRequest. )
-      (.setFormat                 ReportFormat/TSV)
-      (.setReportName             name)
-      (.setReturnOnlyCompleteData complete-only?)
-      (.setAggregation            (report-aggregation aggregation))
-      (.setScope                  (doto (AccountThroughAdGroupReportScope. )
-                                    (.setAccountIds account-longs)))
-      (.setTime                   (report-time time-period))
-      (.setColumns                (keyword-performance-report-columns columns)))))
+      (doto (KeywordPerformanceReportRequest. )
+        (.setFormat                 ReportFormat/TSV)
+        (.setReportName             name)
+        (.setReturnOnlyCompleteData complete-only?)
+        (.setAggregation            (report-aggregation aggregation))
+        (.setScope                  (doto (AccountThroughAdGroupReportScope. )
+                                      (.setAccountIds account-longs)))
+        (.setTime                   (report-time time-period))
+        (.setExcludeReportHeader    true)
+        (.setExcludeReportFooter    true)
+        (.setColumns                (keyword-performance-report-columns columns)))))
 
 
 (defn account-performance-report-columns [cols]
@@ -210,74 +216,11 @@
       (.setScope                  (doto (AccountReportScope. )
                                     (.setAccountIds account-longs)))
       (.setTime                   (report-time time-period))
-      (.setColumns                (account-performance-report-columns columns)))))
+      (.setColumns                (account-performance-report-columns columns))
+      (.setExcludeReportHeader    true)
+      (.setExcludeReportFooter    true))))
 
-(def report-status {ReportRequestStatusType/SUCCESS :success
-                    ReportRequestStatusType/ERROR   :error
-                    ReportRequestStatusType/PENDING :pending})
-
-(defn lines [string-writer]
-  (s/split (.toString string-writer) #"\r\n"))
-
-(defn read-entry [zip-stream entry]
-  (let [header-rows 10
-        footer-rows 2
-        writer      (StringWriter. (.getSize entry))]
-    (io/copy zip-stream writer :encoding "UTF-8")
-    (let [record-lines       (->> (lines writer)
-                                  (drop header-rows)
-                                  (drop-last footer-rows)
-                                  (s/join \newline))
-          [header & records] (csv/read-csv record-lines :separator \tab)]
-      {:name      (.getName entry)
-       :directory (.isDirectory entry)
-       :size      (.getSize entry)
-       :header    header
-       :records   (map (fn [record] (apply array-map (interleave header record))) records)})))
-
-(defn entries-seq [report-url]
-  (let [{:keys [body]} (http/get report-url {:as :stream})
-        zip-stream (ZipInputStream. body)]
-    (loop [entry   (.getNextEntry zip-stream)
-           entries (list)]
-      (if (nil? entry)
-        entries
-        (let [added (conj entries (read-entry zip-stream entry))]
-          (recur (.getNextEntry zip-stream) added))))))
-
-
-
-(defn generate-report
-  "Submits the report request to the API. Returns a map with an :error
-  if the request can't be processed. If successful returns :request-id
-  that can be used with poll-report."
-  [reporting-service report-request]
-  (let [generate-request (doto (SubmitGenerateReportRequest.)
-                           (.setReportRequest report-request))]
-    (try
-      {:request-id (.getReportRequestId (.submitGenerateReport (.getService reporting-service) generate-request))}
-      (catch AdApiFaultDetail_Exception e
-        (let [fault-info (.getFaultInfo e)]
-          (throw (ex-info "error generating report."
-                          {:operation-errors (map (fn [e] {:code       (.getCode e)
-                                                          :error-code (.getErrorCode e)
-                                                          :details    (.getDetail e)
-                                                          :message    (.getMessage e)})
-                                                  (.. fault-info getErrors getAdApiErrors))})))))))
-
-(defn poll-report
-  "Retrieves the report's download URL and its status (:success, :pending etc.)"
-  [reporting-service request-id]
-  (let [poll-request (doto (PollGenerateReportRequest. )
-                       (.setReportRequestId request-id))
-        response     (.pollGenerateReport (.getService reporting-service) poll-request)
-        status       (.getReportRequestStatus response)]
-    {:report-url     (.getReportDownloadUrl status)
-     :status         (report-status (.getStatus status))}))
-
-(def gregorian-date-format (tf/formatter "MM/dd/yyyy"))
-
-(defn parse-date [s] (tc/to-local-date (tf/parse gregorian-date-format s)))
+(defn parse-date [s] (tc/from-string s))
 (defn parse-long [s] (Long/valueOf s))
 (defn parse-double [s] (Double/parseDouble s))
 
@@ -296,10 +239,25 @@
           (let [f (parser k)]
             [k (f v)]))))
 
-(defn record-seq
-  "Downloads the report and returns an array-map for each report row."
-  [report-url]
-  (->> (entries-seq report-url)
-       (remove :directory)
-       (mapcat :records)
-       (map coerce-record)))
+(defn csv-data->maps  [[headers & data]]
+  (map zipmap
+       (repeat headers)
+       data))
+
+(defn report->maps [file]
+  (-> file
+    io/input-stream
+    BOMInputStream.
+    io/reader
+    (csv/read-csv :separator \tab)
+    csv-data->maps))
+
+(defn submit-and-download [report-request auth]
+  (let [reporting-service-manager    (doto (ReportingServiceManager. auth) (.setStatusPollIntervalInMilliseconds 5000))
+        reporting-download-operation (.. reporting-service-manager (submitDownloadAsync report-request nil) get)
+        filename                     (str (java.util.UUID/randomUUID) ".tsv")
+        _                            (.. reporting-download-operation (trackAsync nil) (get 60000, TimeUnit/MILLISECONDS))
+        report-file                  (.. reporting-download-operation (downloadResultFileAsync (clojure.java.io/file "/tmp") filename true true nil) get)
+        result (->> report-file report->maps (map coerce-record)) ]
+    (.delete (io/file (str "/tmp/" filename)))
+    result))
